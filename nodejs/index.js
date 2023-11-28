@@ -26,10 +26,12 @@ async function accessSecret() {
   });
 
   const payload = version.payload.data.toString('utf8');
-  return payload
+  const secret = JSON.parse(payload);
+  
+  return secret;
 }
 
 // await addSecretVersion();
 
-const env = JSON.parse(await accessSecret())
+const env = await accessSecret()
 console.log(env.username);

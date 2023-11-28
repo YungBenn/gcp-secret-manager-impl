@@ -46,12 +46,17 @@ func addSecretVersion(w io.Writer, parent string) error {
 	return nil
 }
 
-func accessSecretVersion(w io.Writer, name string) (string, error) {
+type EnvData struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func accessSecretVersion(w io.Writer, name string) (EnvData, error) {
 	// Create the client.
 	ctx := context.Background()
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to create secretmanager client: %w", err)
+		return EnvData{}, fmt.Errorf("failed to create secretmanager client: %w", err)
 	}
 	defer client.Close()
 
@@ -63,30 +68,33 @@ func accessSecretVersion(w io.Writer, name string) (string, error) {
 	// Call the API.
 	result, err := client.AccessSecretVersion(ctx, req)
 	if err != nil {
-		return "",fmt.Errorf("failed to access secret version: %w", err)
+		return EnvData{}, fmt.Errorf("failed to access secret version: %w", err)
 	}
 
 	// Verify the data checksum.
 	crc32c := crc32.MakeTable(crc32.Castagnoli)
 	checksum := int64(crc32.Checksum(result.Payload.Data, crc32c))
 	if checksum != *result.Payload.DataCrc32C {
-		return "",fmt.Errorf("data corruption detected")
+		return EnvData{}, fmt.Errorf("data corruption detected")
 	}
 
 	// WARNING: Do not print the secret in a production environment - this snippet
 	// is showing how to access the secret material.
 	// fmt.Fprintln(w, string(result.Payload.Data))
-	return string(result.Payload.Data), nil
-}
+	data := string(result.Payload.Data)
 
-type EnvData struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	var envData EnvData
+	err = json.Unmarshal([]byte(data), &envData)
+	if err != nil {
+		return EnvData{}, fmt.Errorf("failed to unmarshal json: %w", err)
+	}
+
+	return envData, nil
 }
 
 func main() {
 	w := os.Stdout
-	
+
 	// parent := "projects/1061405048387/secrets/test-secret"
 	// err := addSecretVersion(w, parent)
 	// if err != nil {
@@ -95,18 +103,11 @@ func main() {
 	// }
 
 	name := "projects/1061405048387/secrets/test-secret/versions/2"
-	envData,err := accessSecretVersion(w, name)
+	secret, err := accessSecretVersion(w, name)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to access secret version:", err)
 		os.Exit(1)
 	}
 
-	var data EnvData
-	err = json.Unmarshal([]byte(envData), &data)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Unable to unmarshal json:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println(data.Username)
+	fmt.Println(secret.Username)
 }
